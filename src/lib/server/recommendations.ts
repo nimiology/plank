@@ -67,3 +67,13 @@ export async function getForYouRows(organizationId: string): Promise<Recommendat
 	});
 	return rows;
 }
+
+/** "More like this" for one title, minus what the profile already has. */
+export async function getMoreLikeThis(
+	organizationId: string,
+	tmdbId: number,
+	type: "movie" | "show"
+): Promise<BrowseItem[]> {
+	const library = mediaDb.getLibraryTmdbKeys(organizationId);
+	return rankRecommendations([await getRecommendations(tmdbId, type)], library).slice(0, ROW_SIZE);
+}

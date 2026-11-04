@@ -4,7 +4,7 @@
     import { onDestroy } from "svelte";
     import type { BrowseItem } from "$lib/server/tmdb";
     import type { CatalogSeason } from "$lib/types";
-    import { cn } from "$lib/utils";
+    import { cn, tmdbImage } from "$lib/utils";
     import Button from "./ui/Button.svelte";
     import Tip from "./ui/Tip.svelte";
     import Tv from "./ui/Tv.svelte";
@@ -204,7 +204,7 @@
 
         {#if item.posterUrl}
             <img
-                src={item.posterUrl}
+                src={tmdbImage(item.posterUrl)}
                 alt={item.title}
                 class={cn(
                     "h-full w-full object-cover transition-all duration-300 group-hover:scale-105 group-hover:blur-sm",

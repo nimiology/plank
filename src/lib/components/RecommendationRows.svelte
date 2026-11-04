@@ -2,16 +2,21 @@
     import { createBrowseActions } from "$lib/browse-actions.svelte";
     import CardSkeleton from "$lib/components/CardSkeleton.svelte";
     import TorrentCard from "$lib/components/TorrentCard.svelte";
-    import { createRecommendationsQuery } from "$lib/data/browse";
+    import { createRecommendationsQuery, type RecommendationTarget } from "$lib/data/browse";
 
     let {
-        actions,
+        target = null,
+        actions: sharedActions = null,
     }: {
-        /** The browse page's actions, so its grid and these rows share one adding state. */
-        actions: ReturnType<typeof createBrowseActions>;
+        /** Title to find similar ones for. Leave unset for the profile's "for you" rows. */
+        target?: RecommendationTarget | null;
+        /** Pass the page's actions when it also shows TorrentCards, so both share one adding state. */
+        actions?: ReturnType<typeof createBrowseActions> | null;
     } = $props();
 
-    const query = createRecommendationsQuery();
+    // svelte-ignore state_referenced_locally
+    const actions = sharedActions ?? createBrowseActions();
+    const query = createRecommendationsQuery(() => target);
     const rows = $derived(query.data?.rows ?? []);
 </script>
 

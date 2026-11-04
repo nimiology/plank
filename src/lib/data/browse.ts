@@ -3,6 +3,7 @@ import { invalidate } from "$app/navigation";
 import { type CatalogFilters, DEFAULT_CATALOG_FILTERS, serializeCatalogSearch } from "$lib/data/search";
 import type { BrowseItem, SeasonSummary } from "$lib/server/tmdb";
 import type { Media } from "$lib/types";
+import { tmdbImage } from "$lib/utils";
 import { apiRequest, queryClient } from "./client";
 import { prefetchProwlarrStatus } from "./prowlarr";
 
@@ -18,18 +19,30 @@ const browseKeys = {
 	details: (tmdbIds: number[]) => ["browse", "details", ...tmdbIds.toSorted()] as const,
 	resolve: (tmdbId: number) => ["browse", "resolve", tmdbId] as const,
 	seasons: (tmdbId: number) => ["browse", "seasons", tmdbId] as const,
-	recommendations: ["browse", "recommendations"] as const,
+	recommendations: (target: RecommendationTarget | null) => ["browse", "recommendations", target] as const,
 };
+
+/** A title to find similar ones for. Leave unset for the profile's own "for you" rows. */
+export interface RecommendationTarget {
+	tmdbId: number;
+	type: "movie" | "show";
+}
 
 export interface RecommendationsResponse {
 	rows: { title: string; items: BrowseItem[] }[];
 }
 
-export function createRecommendationsQuery() {
+export function createRecommendationsQuery(target: () => RecommendationTarget | null) {
 	return createQuery(() => ({
-		queryKey: browseKeys.recommendations,
-		queryFn: () =>
-			apiRequest<RecommendationsResponse>("/api/browse/recommendations", "Failed to fetch recommendations"),
+		queryKey: browseKeys.recommendations(target()),
+		queryFn: () => {
+			const t = target();
+			const params = t ? `?tmdbId=${t.tmdbId}&type=${t.type}` : "";
+			return apiRequest<RecommendationsResponse>(
+				`/api/browse/recommendations${params}`,
+				"Failed to fetch recommendations"
+			);
+		},
 		staleTime: BROWSE_STALE_TIME_MS,
 	}));
 }
@@ -143,7 +156,7 @@ export function fetchSeasonsCached(tmdbId: number): Promise<SeasonsResponse> {
 function preloadImages(items: { posterUrl: string | null }[]): void {
 	const urls = items
 		.slice(0, IMAGE_PRELOAD_COUNT)
-		.map((item) => item.posterUrl)
+		.map((item) => tmdbImage(item.posterUrl))
 		.filter((url): url is string => url !== null);
 	const load = () => {
 		for (const url of urls) {

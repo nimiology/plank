@@ -9,6 +9,8 @@ import { member, schema } from "./db/schema";
 export const auth = betterAuth({
 	secret: env.BETTER_AUTH_SECRET,
 	baseURL: env.BETTER_AUTH_URL,
+	// other addresses plank is opened from, e.g. "http://localhost:3300,http://192.168.100.100:3300"
+	trustedOrigins: env.TRUSTED_ORIGINS?.split(",").map((origin) => origin.trim()) ?? [],
 	database: drizzleAdapter(db, {
 		provider: "sqlite",
 		schema: {

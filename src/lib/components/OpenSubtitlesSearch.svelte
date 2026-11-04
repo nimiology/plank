@@ -27,7 +27,7 @@
     let searching = $state(false);
     let searchError = $state("");
     let downloadError = $state("");
-    let selectedLanguage = $state("en");
+    let selectedLanguage = $state("fa");
     let downloadingIds = $state<Set<string>>(new Set());
     let downloadedIds = $state<Set<string>>(new Set());
 

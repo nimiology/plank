@@ -58,6 +58,7 @@ interface OSLoginResponse {
 
 // ISO 639-1 to language name mapping for display
 const LANGUAGE_NAMES: Record<string, string> = {
+	fa: "Persian",
 	en: "English",
 	es: "Spanish",
 	fr: "French",
@@ -290,6 +291,15 @@ export async function searchSubtitles(params: OpenSubtitlesSearchParams): Promis
 // Download
 // ============================================================================
 
+/** UTF-8 when valid, otherwise Windows-1256, the legacy encoding most older Persian and Arabic subtitles use. */
+export function decodeSubtitle(bytes: ArrayBuffer): string {
+	try {
+		return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+	} catch {
+		return new TextDecoder("windows-1256").decode(bytes);
+	}
+}
+
 export async function downloadSubtitle(fileId: number, mediaId: string): Promise<{ filePath: string }> {
 	const apiKey = await getApiKey();
 	if (!apiKey) {
@@ -318,7 +328,7 @@ export async function downloadSubtitle(fileId: number, mediaId: string): Promise
 		throw new Error(`Failed to download subtitle file: ${fileResponse.status}`);
 	}
 
-	const content = await fileResponse.text();
+	const content = decodeSubtitle(await fileResponse.arrayBuffer());
 
 	// Step 3: Save to disk
 	const subtitleDir = path.join(PATHS.library, sanitizeFilename(mediaId), "subtitles");

@@ -6,6 +6,13 @@ export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
 }
 
+const TMDB_IMAGE_PREFIX = "https://image.tmdb.org/t/p/";
+
+/** Serve TMDB posters through plank, so viewers whose network blocks image.tmdb.org still see them. */
+export function tmdbImage(url: string | null): string | null {
+	return url?.startsWith(TMDB_IMAGE_PREFIX) ? `/api/tmdb-image/${url.slice(TMDB_IMAGE_PREFIX.length)}` : url;
+}
+
 export function canPlayEpisode(episode: Pick<Media, "filePath" | "fileIndex" | "status">): boolean {
 	return Boolean(
 		episode.filePath ||

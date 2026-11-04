@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cn, formatFileSize } from "$lib/utils";
+import { cn, formatFileSize, tmdbImage } from "$lib/utils";
 
 describe("Utils", () => {
 	describe("cn (classname merger)", () => {
@@ -45,6 +45,14 @@ describe("Utils", () => {
 			expect(() => formatFileSize(-1)).toThrow(/must not be negative/);
 			expect(() => formatFileSize(Number.NaN)).toThrow(/must be finite/);
 			expect(() => formatFileSize(Number.POSITIVE_INFINITY)).toThrow(/must be finite/);
+		});
+	});
+
+	describe("tmdbImage", () => {
+		it("routes TMDB images through plank and leaves others alone", () => {
+			expect(tmdbImage("https://image.tmdb.org/t/p/w342/abc.jpg")).toBe("/api/tmdb-image/w342/abc.jpg");
+			expect(tmdbImage("/api/images/library/x/poster.jpg")).toBe("/api/images/library/x/poster.jpg");
+			expect(tmdbImage(null)).toBeNull();
 		});
 	});
 });
