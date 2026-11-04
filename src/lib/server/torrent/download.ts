@@ -185,7 +185,11 @@ async function handleDownloadComplete(infohash: string, download: ActiveDownload
 /** Update media status based on all active downloads for that media */
 function updateMediaStatusFromDownloads(mediaId: string): void {
 	const downloads = getDownloadsForMedia(mediaId);
-	const allComplete = downloads.length === 0 || downloads.every((d) => d.status === "complete");
+	// No tracked downloads (e.g. the list was cleared during shutdown) says nothing about the media.
+	if (downloads.length === 0) {
+		return;
+	}
+	const allComplete = downloads.every((d) => d.status === "complete");
 	const anyError = downloads.some((d) => d.status === "error");
 
 	if (allComplete) {
