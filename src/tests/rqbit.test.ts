@@ -7,6 +7,7 @@ const HASH = "0123456789abcdef0123456789abcdef01234567";
 const FILE = Buffer.from("0123456789".repeat(10));
 const calls: { method: string; url: string; body: string }[] = [];
 let finished = false;
+let refuseFileSelection = false;
 let server: Server;
 let baseUrl: string;
 
@@ -54,6 +55,11 @@ beforeAll(async () => {
 				finished,
 				live: { download_speed: { mbps: 2 }, snapshot: { peer_stats: { live: 7 } } },
 			});
+		} else if (url.endsWith("/update_only_files") && refuseFileSelection) {
+			// rqbit's answer while it re-checks data already on disk.
+			refuseFileSelection = false;
+			response.statusCode = 500;
+			json({ error_kind: "internal_error", human_readable: "can't update initializing torrent" });
 		} else if (url === `/torrents/${HASH}/stream/0`) {
 			const [start, end] = (request.headers.range ?? "bytes=0-").replace("bytes=", "").split("-");
 			const from = Number(start);
@@ -107,6 +113,22 @@ describe("rqbit engine", () => {
 
 		await new Promise<void>((resolve) => torrent.destroy({ destroyStore: true }, resolve));
 		expect(calls.at(-1)?.url).toBe(`/torrents/${HASH}/delete`);
+	}, 15_000);
+
+	it("retries file selection while rqbit is still checking existing data", async () => {
+		const client = new RqbitClient(baseUrl);
+		const torrent = client.add(`magnet:?xt=urn:btih:${HASH}`, { path: "/downloads/movie" });
+		await new Promise<void>((resolve) => torrent.on("ready", resolve));
+		refuseFileSelection = true;
+		const before = calls.length;
+
+		torrent.files[1].deselect();
+		await new Promise((resolve) => setTimeout(resolve, 5500));
+
+		const attempts = calls.slice(before).filter((call) => call.url.endsWith("/update_only_files"));
+		expect(attempts).toHaveLength(2);
+		expect(attempts[1].body).toBe('{"only_files":[0]}');
+		client.destroy();
 	}, 15_000);
 
 	it("rejects links without an info hash", () => {

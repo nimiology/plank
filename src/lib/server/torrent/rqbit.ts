@@ -8,6 +8,9 @@ import { PassThrough, Readable } from "node:stream";
 import type { Torrent, TorrentFile, WebTorrentClient } from "./client";
 
 const POLL_MS = 2000;
+const FILE_SYNC_RETRY_MS = 5000;
+/** About 30 minutes of retries, enough for rqbit to re-check a large file on a slow disk. */
+const FILE_SYNC_RETRIES = 360;
 
 interface RqbitFile {
 	name: string;
@@ -204,19 +207,27 @@ class RqbitTorrent extends EventEmitter {
 	}
 
 	/** Batch select/deselect calls into one update; an empty selection pauses instead (rqbit needs one file). */
-	scheduleFileSync(): void {
-		if (this.syncTimer || !this.ready) {
+	scheduleFileSync(delayMs = 50, attempt = 0): void {
+		if (this.syncTimer || !this.ready || this.destroyed) {
 			return;
 		}
 		this.syncTimer = setTimeout(() => {
 			this.syncTimer = null;
+			// Read the selection when sending, so a retry carries the latest select/deselect calls.
 			const selected = this.files.filter((file) => file.selected).map((file) => file.index);
 			const update =
 				selected.length === 0
 					? this.api.post(`/torrents/${this.infoHash}/pause`)
 					: this.api.post(`/torrents/${this.infoHash}/update_only_files`, { only_files: selected });
-			update.catch((error) => console.error(`[rqbit] File selection failed for ${this.infoHash}:`, error));
-		}, 50);
+			update.catch((error: Error) => {
+				// rqbit refuses changes while it re-checks existing data on disk, which can take minutes.
+				if (error.message.includes("initializing") && attempt < FILE_SYNC_RETRIES) {
+					this.scheduleFileSync(FILE_SYNC_RETRY_MS, attempt + 1);
+					return;
+				}
+				console.error(`[rqbit] File selection failed for ${this.infoHash}:`, error);
+			});
+		}, delayMs);
 	}
 
 	/** Stop polling without touching the torrent in rqbit. */
