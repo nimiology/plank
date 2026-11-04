@@ -68,6 +68,7 @@
         progress={entry.progress}
         downloadSpeed={entry.downloadSpeed}
         peers={entry.peers}
+        totalSize={entry.totalSize}
         transcodeProgress={entry.transcodeProgress}
         episodes={entry.episodes}
         onRedownload={() => openRedownload(entry)}

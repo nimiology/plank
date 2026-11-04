@@ -15,6 +15,7 @@
         progress = null,
         downloadSpeed = 0,
         peers = 0,
+        totalSize = 0,
         transcodeProgress = 0,
         episodes = [],
         onPlay = null,
@@ -33,6 +34,8 @@
         progress?: number | null;
         downloadSpeed?: number;
         peers?: number;
+        /** Size of the download in bytes; shown as "downloaded / total" when known. */
+        totalSize?: number;
         /** Live finalization progress, from 0 to 1. */
         transcodeProgress?: number;
         /** Episodes that ride on this download. When set, the row gets an expander. */
@@ -233,6 +236,11 @@
                     <span>Finalizing media: {percent}%</span>
                 {:else}
                     <span>{percent}%</span>
+                    {#if totalSize > 0}
+                        <span class="tabular-nums">
+                            {formatFileSize(Math.round(totalSize * (progress ?? 0)))} / {formatFileSize(totalSize)}
+                        </span>
+                    {/if}
                     <span>{formatFileSize(downloadSpeed)}/s</span>
                     <span>{peers} peers</span>
                 {/if}

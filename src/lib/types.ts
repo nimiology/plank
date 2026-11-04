@@ -116,6 +116,8 @@ export interface QueueEntry {
 	/** Live torrent stats. Zero when no torrent is running. */
 	downloadSpeed: number;
 	peers: number;
+	/** Bytes of the selected files. Zero until the torrent's metadata is known. */
+	totalSize: number;
 	/** Finalization progress from 0 to 1. Zero unless the status is finalizing. */
 	transcodeProgress: number;
 	episodes: QueueEpisode[];
