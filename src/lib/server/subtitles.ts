@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Media } from "$lib/server/db/schema";
 import type { SubtitleTrackResponse } from "$lib/types";
 import { subtitlesDb } from "./db";
-import { convertSubtitleToVtt, extractSubtitleToVtt, probeTextSubtitles } from "./ffmpeg";
+import { convertSubtitleToVtt, extractSubtitlesToVtt, probeTextSubtitles } from "./ffmpeg";
 import { sanitizeFilename } from "./images";
 import { PATHS } from "./paths";
 
@@ -121,6 +121,8 @@ export async function discoverSubtitles(mediaId: string, libraryDir: string): Pr
 
 // Media whose embedded tracks were already looked at in this process, so page loads do not re-probe.
 const embeddedChecked = new Set<string>();
+// One extraction at a time, so opening several episodes does not stack ffmpeg runs on a small CPU.
+let extractionQueue: Promise<void> = Promise.resolve();
 
 /** Pull text subtitle tracks out of the video into WebVTT files the browser player can load. */
 export async function extractEmbeddedSubtitles(mediaId: string, videoPath: string): Promise<void> {
@@ -141,24 +143,26 @@ export async function extractEmbeddedSubtitles(mediaId: string, videoPath: strin
 	const dir = getSubtitleDir(sanitizeFilename(mediaId));
 	await fs.mkdir(dir, { recursive: true });
 	const existingPaths = new Set(subtitlesDb.getByMediaId(mediaId).map((subtitle) => subtitle.filePath));
-	for (const track of tracks) {
-		const outputPath = path.join(dir, `embedded-${track.subtitleIndex}.vtt`);
-		if (existingPaths.has(outputPath)) {
-			continue;
-		}
-		try {
-			await extractSubtitleToVtt(videoPath, track.subtitleIndex, outputPath);
-		} catch (error) {
-			console.error(`[Subtitles] Failed to extract track ${track.subtitleIndex} of ${videoPath}:`, error);
-			continue;
-		}
+	const missing = tracks
+		.map((track) => ({ ...track, outputPath: path.join(dir, `embedded-${track.subtitleIndex}.vtt`) }))
+		.filter((track) => !existingPaths.has(track.outputPath));
+	if (missing.length === 0) {
+		return;
+	}
+	try {
+		await extractSubtitlesToVtt(videoPath, missing);
+	} catch (error) {
+		console.error(`[Subtitles] Failed to extract subtitles from ${videoPath}:`, error);
+		return;
+	}
+	for (const track of missing) {
 		const languageName = LANGUAGE_MAP[track.language] ?? track.language;
 		subtitlesDb.create({
 			mediaId,
 			language: track.language,
 			label: track.title ? `${languageName} (${track.title})` : languageName,
 			source: "embedded",
-			filePath: outputPath,
+			filePath: track.outputPath,
 		});
 	}
 }
@@ -178,7 +182,12 @@ export async function getSubtitleTracksForMedia(
 ): Promise<SubtitleTrackResponse[]> {
 	if (media.filePath) {
 		await discoverSubtitles(media.id, path.dirname(media.filePath));
-		await extractEmbeddedSubtitles(media.id, media.filePath);
+		// In the background: reading a large file takes minutes on a slow disk, and the page must not wait.
+		// Tracks found this way show up on the next page load.
+		const filePath = media.filePath;
+		extractionQueue = extractionQueue
+			.then(() => extractEmbeddedSubtitles(media.id, filePath))
+			.catch((error) => console.error(`[Subtitles] Embedded extraction failed for ${media.id}:`, error));
 	}
 	return getSubtitleTracks(media.id);
 }

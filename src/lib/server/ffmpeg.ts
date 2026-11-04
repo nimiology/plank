@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import type { Readable } from "node:stream";
 import { PassThrough } from "node:stream";
 import ffmpeg from "fluent-ffmpeg";
@@ -230,14 +231,31 @@ export function probeTextSubtitles(filePath: string): Promise<EmbeddedSubtitle[]
 	});
 }
 
-export function extractSubtitleToVtt(inputPath: string, subtitleIndex: number, outputPath: string): Promise<void> {
+/**
+ * Write several subtitle tracks to WebVTT in one read of the file, at low CPU priority:
+ * a file can carry 20+ tracks, and one pass per track would read the whole video each time.
+ */
+export function extractSubtitlesToVtt(
+	inputPath: string,
+	tracks: { subtitleIndex: number; outputPath: string }[]
+): Promise<void> {
+	const args = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", inputPath];
+	for (const track of tracks) {
+		args.push("-map", `0:s:${track.subtitleIndex}`, "-c:s", "webvtt", track.outputPath);
+	}
 	return new Promise((resolve, reject) => {
-		ffmpeg(inputPath)
-			.outputOptions(["-map", `0:s:${subtitleIndex}`, "-c:s", "webvtt"])
-			.output(outputPath)
-			.on("error", (err: Error) => reject(err))
-			.on("end", () => resolve())
-			.run();
+		execFile(
+			"nice",
+			["-n", "15", FFMPEG_PATH, ...args],
+			{ maxBuffer: 4 * 1024 * 1024 },
+			(error, _stdout, stderr) => {
+				if (error) {
+					reject(new Error(stderr.trim() || error.message));
+					return;
+				}
+				resolve();
+			}
+		);
 	});
 }
 
