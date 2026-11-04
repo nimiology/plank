@@ -3,6 +3,7 @@ import { env } from "$env/dynamic/private";
 import { decrypt, encrypt } from "$lib/server/crypto";
 import { db } from "$lib/server/db/index";
 import { configuration } from "$lib/server/db/schema";
+import { type EncoderSetting, isEncoderSetting } from "$lib/server/encoder";
 
 export interface AppSettings {
 	tmdb: {
@@ -22,6 +23,20 @@ export interface AppSettings {
 		username: string;
 		password: string;
 	};
+	playback: {
+		encoder: EncoderSetting;
+	};
+	downloads: {
+		engine: TorrentEngine;
+		rqbitUrl: string;
+	};
+}
+
+export const TORRENT_ENGINES = ["webtorrent", "rqbit"] as const;
+export type TorrentEngine = (typeof TORRENT_ENGINES)[number];
+
+export function isTorrentEngine(value: unknown): value is TorrentEngine {
+	return typeof value === "string" && (TORRENT_ENGINES as readonly string[]).includes(value);
 }
 
 const DEFAULT_CONFIG: AppSettings = {
@@ -44,6 +59,13 @@ const DEFAULT_CONFIG: AppSettings = {
 		username: env.OPENSUBTITLES_USERNAME || "",
 		password: env.OPENSUBTITLES_PASSWORD || "",
 	},
+	playback: {
+		encoder: isEncoderSetting(env.VIDEO_ENCODER) ? env.VIDEO_ENCODER : "auto",
+	},
+	downloads: {
+		engine: isTorrentEngine(env.TORRENT_ENGINE) ? env.TORRENT_ENGINE : "webtorrent",
+		rqbitUrl: env.RQBIT_URL || "http://127.0.0.1:3030",
+	},
 };
 
 /** Fields stored encrypted at rest */
@@ -56,7 +78,7 @@ const ENCRYPTED_FIELDS = [
 ] as const;
 
 /** Fields stored as plain text (or serialized JSON) */
-const PLAIN_FIELDS = ["prowlarrUrl", "prowlarrMinSeeders"] as const;
+const PLAIN_FIELDS = ["prowlarrUrl", "prowlarrMinSeeders", "videoEncoder", "torrentEngine", "rqbitUrl"] as const;
 
 type SettingsUpdate = Partial<{
 	tmdbApiKey: string;
@@ -67,6 +89,9 @@ type SettingsUpdate = Partial<{
 	opensubtitlesApiKey: string;
 	opensubtitlesUsername: string;
 	opensubtitlesPassword: string;
+	videoEncoder: EncoderSetting;
+	torrentEngine: TorrentEngine;
+	rqbitUrl: string;
 }>;
 
 // In-memory cache for settings to avoid repeated DB queries + decryption
@@ -74,6 +99,23 @@ type SettingsUpdate = Partial<{
 let settingsCache: AppSettings | null = null;
 let settingsCacheTime = 0;
 const SETTINGS_CACHE_TTL = 60_000; // 1 minute
+
+/** A saved value wins over env only once someone picks a non-default one in the UI. */
+function readEngineSettings(
+	stored: { videoEncoder?: string | null; torrentEngine?: string | null; rqbitUrl?: string | null } | undefined
+): Pick<AppSettings, "playback" | "downloads"> {
+	const encoder = stored?.videoEncoder;
+	const engine = stored?.torrentEngine;
+	return {
+		playback: {
+			encoder: isEncoderSetting(encoder) && encoder !== "auto" ? encoder : DEFAULT_CONFIG.playback.encoder,
+		},
+		downloads: {
+			engine: isTorrentEngine(engine) && engine !== "webtorrent" ? engine : DEFAULT_CONFIG.downloads.engine,
+			rqbitUrl: stored?.rqbitUrl || DEFAULT_CONFIG.downloads.rqbitUrl,
+		},
+	};
+}
 
 export async function getSettings(): Promise<AppSettings> {
 	// Return cached settings if still fresh
@@ -122,6 +164,7 @@ export async function getSettings(): Promise<AppSettings> {
 				username: decrypt(stored?.opensubtitlesUsername || "") || DEFAULT_CONFIG.opensubtitles.username,
 				password: decrypt(stored?.opensubtitlesPassword || "") || DEFAULT_CONFIG.opensubtitles.password,
 			},
+			...readEngineSettings(stored),
 		};
 
 		settingsCache = settings;
@@ -133,6 +176,8 @@ export async function getSettings(): Promise<AppSettings> {
 			tmdb: DEFAULT_CONFIG.tmdb,
 			prowlarr: DEFAULT_CONFIG.prowlarr,
 			opensubtitles: DEFAULT_CONFIG.opensubtitles,
+			playback: DEFAULT_CONFIG.playback,
+			downloads: DEFAULT_CONFIG.downloads,
 		};
 	}
 }

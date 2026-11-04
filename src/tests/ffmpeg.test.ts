@@ -33,6 +33,7 @@ const { mockFfmpegConstructor, mockFfmpegCommand } = vi.hoisted(() => {
 		vi.fn(() => mockCommand),
 		{
 			setFfmpegPath: vi.fn(),
+			setFfprobePath: vi.fn(),
 			ffprobe: vi.fn(),
 		}
 	);
@@ -45,6 +46,12 @@ const { mockFfmpegConstructor, mockFfmpegCommand } = vi.hoisted(() => {
 
 vi.mock("fluent-ffmpeg", () => ({
 	default: mockFfmpegConstructor,
+}));
+
+// Hardware detection runs real ffmpeg; pin the CPU encoder so tests do not depend on the machine.
+vi.mock("$lib/server/encoder", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/server/encoder")>()),
+	resolveEncoder: vi.fn(async () => "libx264"),
 }));
 
 function mockCodecs(videoCodec = "h264", audioCodec: string | null = "aac", audioChannels = 2): void {
@@ -212,6 +219,8 @@ describe("FFmpeg Service", () => {
 				duration: 100,
 				audioChannels: 2,
 				hasDataStreams: false,
+				videoHeight: null,
+				pixelFormat: null,
 			});
 		});
 

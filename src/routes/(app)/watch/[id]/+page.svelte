@@ -7,6 +7,7 @@
     import { ArrowLeft, Download, EllipsisVertical, Play, Users, X } from "@lucide/svelte";
     import { DropdownMenu, Progress } from "bits-ui";
     import { onDestroy, onMount } from "svelte";
+    import { isHLSProvider } from "vidstack";
     import type { MediaPlayerElement } from "vidstack/elements";
     import { browser } from "$app/environment";
     import { connectMediaProgressStream } from "$lib/client/media-progress-stream";
@@ -68,8 +69,42 @@
         return `${(bytesPerSecond / (1024 * 1024)).toFixed(1)} MB/s`;
     }
 
-    function getVideoSrc(): string {
-        return `/api/media/${data.media.id}/stream`;
+    function getVideoSrc(): string | { src: string; type: string } {
+        if (data.playback.mode === "hls") {
+            return { src: data.playback.src, type: "application/x-mpegurl" };
+        }
+        return data.playback.src;
+    }
+
+    // Bundle hls.js instead of letting the player fetch it from a CDN.
+    $effect(() => {
+        const player = playerEl;
+        if (!player) {
+            return;
+        }
+        const onProviderChange = (event: Event) => {
+            const provider = (event as CustomEvent).detail;
+            if (provider && isHLSProvider(provider)) {
+                provider.library = () => import("hls.js");
+            }
+        };
+        player.addEventListener("provider-change", onProviderChange);
+        return () => player.removeEventListener("provider-change", onProviderChange);
+    });
+
+    function openExternal(scheme: "vlc" | "infuse"): void {
+        const url = data.playback.externalUrl;
+        if (!url) {
+            return;
+        }
+        window.location.href =
+            scheme === "vlc" ? `vlc://${url}` : `infuse://x-callback-url/play?url=${encodeURIComponent(url)}`;
+    }
+
+    async function copyExternalLink(): Promise<void> {
+        if (data.playback.externalUrl) {
+            await navigator.clipboard.writeText(data.playback.externalUrl);
+        }
     }
 
     function getIsReady(): boolean {
@@ -378,6 +413,26 @@
                             <span class="h-2 w-2 rounded-full bg-primary"></span>
                         {/if}
                     </DropdownMenu.Item>
+                    {#if data.playback.externalUrl}
+                        <DropdownMenu.Item
+                            onSelect={() => openExternal("vlc")}
+                            class="flex h-10 cursor-default select-none items-center rounded-lg px-3 text-sm outline-none data-highlighted:bg-white/10"
+                        >
+                            Play in VLC
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item
+                            onSelect={() => openExternal("infuse")}
+                            class="flex h-10 cursor-default select-none items-center rounded-lg px-3 text-sm outline-none data-highlighted:bg-white/10"
+                        >
+                            Play in Infuse
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item
+                            onSelect={copyExternalLink}
+                            class="flex h-10 cursor-default select-none items-center rounded-lg px-3 text-sm outline-none data-highlighted:bg-white/10"
+                        >
+                            Copy file link
+                        </DropdownMenu.Item>
+                    {/if}
                 </DropdownMenu.Content>
             </DropdownMenu.Portal>
         </DropdownMenu.Root>

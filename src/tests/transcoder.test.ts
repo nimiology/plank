@@ -74,23 +74,30 @@ describe("library transcoder", () => {
 		});
 	});
 
-	it("reports finalization progress until the file is ready", async () => {
+	it("moves the original file into the library without converting it", async () => {
 		const onProgress = vi.fn();
-		vi.mocked(normalizeFileForPlayback).mockImplementation(async (_source, _target, reportProgress) => {
-			reportProgress?.(0.4);
-		});
+		vi.mocked(requiresBrowserSafePlayback).mockResolvedValue(true);
 
-		await finalizeMediaToLibrary("/temp/pilot.mkv", "/library/pilot.mkv", onProgress);
+		const result = await finalizeMediaToLibrary("/temp/pilot.mkv", "/library/pilot.mkv", onProgress);
 
-		expect(onProgress.mock.calls).toEqual([[0], [0.4], [1]]);
+		expect(result).toEqual({ filePath: "/library/pilot.mkv", fileSize: 1000 });
+		expect(vi.mocked(fs.rename)).toHaveBeenCalledWith("/temp/pilot.mkv", "/library/pilot.mkv");
+		expect(vi.mocked(normalizeFileForPlayback)).not.toHaveBeenCalled();
+		expect(onProgress.mock.calls).toEqual([[0], [1]]);
 	});
 
-	it("does not report completion when finalization fails", async () => {
-		vi.mocked(requiresBrowserSafePlayback).mockResolvedValue(true);
+	it("leaves a broken download in place and does not report completion", async () => {
+		vi.mocked(probeFile).mockResolvedValue({
+			videoCodec: null,
+			audioCodec: null,
+			duration: 0,
+			audioChannels: null,
+			hasDataStreams: false,
+		} as never);
 		const onProgress = vi.fn();
 
 		await expect(finalizeMediaToLibrary("/temp/pilot.mkv", "/library/pilot.mkv", onProgress)).rejects.toThrow(
-			"Finalized file is not browser-safe"
+			"Downloaded file is invalid"
 		);
 		expect(onProgress.mock.calls).toEqual([[0]]);
 		expect(vi.mocked(fs.rename)).not.toHaveBeenCalled();

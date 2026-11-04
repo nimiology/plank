@@ -3,6 +3,8 @@ import path from "node:path";
 import type { Media } from "$lib/server/db/schema";
 import type { SubtitleTrackResponse } from "$lib/types";
 import { subtitlesDb } from "./db";
+import { convertSubtitleToVtt, extractSubtitleToVtt, probeTextSubtitles } from "./ffmpeg";
+import { sanitizeFilename } from "./images";
 import { PATHS } from "./paths";
 
 const SIDECAR_EXTENSIONS = [".srt", ".ass", ".ssa", ".vtt", ".sub"];
@@ -72,10 +74,26 @@ async function discoverSidecarSubtitles(mediaId: string, libraryDir: string): Pr
 	} catch {
 		return;
 	}
-	const subtitleFiles = files.filter((fileName) => isSubtitleFile(fileName));
+	let subtitleFiles = files.filter((fileName) => isSubtitleFile(fileName));
 	if (subtitleFiles.length === 0) {
 		return;
 	}
+	// Browsers only read WebVTT; keep the original next to it for external players.
+	const vttNames = new Set(subtitleFiles.filter((name) => path.extname(name).toLowerCase() === ".vtt"));
+	for (const fileName of subtitleFiles) {
+		const extension = path.extname(fileName).toLowerCase();
+		const vttName = `${fileName.slice(0, -extension.length)}.vtt`;
+		if (extension === ".vtt" || extension === ".sub" || vttNames.has(vttName)) {
+			continue;
+		}
+		try {
+			await convertSubtitleToVtt(path.join(libraryDir, fileName), path.join(libraryDir, vttName));
+			vttNames.add(vttName);
+		} catch (error) {
+			console.error(`[Subtitles] Failed to convert ${fileName} to WebVTT:`, error);
+		}
+	}
+	subtitleFiles = [...new Set([...subtitleFiles, ...vttNames])];
 	const existingPaths = new Set(subtitlesDb.getByMediaId(mediaId).map((subtitle) => subtitle.filePath));
 	await fs.mkdir(getSubtitleDir(mediaId), { recursive: true });
 	for (const fileName of subtitleFiles) {
@@ -101,6 +119,50 @@ export async function discoverSubtitles(mediaId: string, libraryDir: string): Pr
 	await discoverSidecarSubtitles(mediaId, libraryDir);
 }
 
+// Media whose embedded tracks were already looked at in this process, so page loads do not re-probe.
+const embeddedChecked = new Set<string>();
+
+/** Pull text subtitle tracks out of the video into WebVTT files the browser player can load. */
+export async function extractEmbeddedSubtitles(mediaId: string, videoPath: string): Promise<void> {
+	if (embeddedChecked.has(mediaId)) {
+		return;
+	}
+	embeddedChecked.add(mediaId);
+	let tracks: Awaited<ReturnType<typeof probeTextSubtitles>>;
+	try {
+		tracks = await probeTextSubtitles(videoPath);
+	} catch (error) {
+		console.error(`[Subtitles] Failed to probe ${videoPath}:`, error);
+		return;
+	}
+	if (tracks.length === 0) {
+		return;
+	}
+	const dir = getSubtitleDir(sanitizeFilename(mediaId));
+	await fs.mkdir(dir, { recursive: true });
+	const existingPaths = new Set(subtitlesDb.getByMediaId(mediaId).map((subtitle) => subtitle.filePath));
+	for (const track of tracks) {
+		const outputPath = path.join(dir, `embedded-${track.subtitleIndex}.vtt`);
+		if (existingPaths.has(outputPath)) {
+			continue;
+		}
+		try {
+			await extractSubtitleToVtt(videoPath, track.subtitleIndex, outputPath);
+		} catch (error) {
+			console.error(`[Subtitles] Failed to extract track ${track.subtitleIndex} of ${videoPath}:`, error);
+			continue;
+		}
+		const languageName = LANGUAGE_MAP[track.language] ?? track.language;
+		subtitlesDb.create({
+			mediaId,
+			language: track.language,
+			label: track.title ? `${languageName} (${track.title})` : languageName,
+			source: "embedded",
+			filePath: outputPath,
+		});
+	}
+}
+
 function getSubtitleTracks(mediaId: string): SubtitleTrackResponse[] {
 	return subtitlesDb.getByMediaId(mediaId).map((subtitle) => ({
 		id: subtitle.id,
@@ -116,6 +178,7 @@ export async function getSubtitleTracksForMedia(
 ): Promise<SubtitleTrackResponse[]> {
 	if (media.filePath) {
 		await discoverSubtitles(media.id, path.dirname(media.filePath));
+		await extractEmbeddedSubtitles(media.id, media.filePath);
 	}
 	return getSubtitleTracks(media.id);
 }

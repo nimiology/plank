@@ -50,6 +50,12 @@ const SECTIONS: SettingsSection[] = [
 		minRole: "owner",
 	},
 	{
+		href: "/settings/playback",
+		label: "Playback & downloads",
+		group: "System",
+		minRole: "owner",
+	},
+	{
 		href: "/settings/indexers",
 		label: "Indexers",
 		group: "System",

@@ -31,6 +31,19 @@ vi.mock("$lib/server/ffmpeg", () => ({
 	requiresBrowserSafePlayback: vi.fn(() => Promise.resolve(false)),
 }));
 
+// The route asks the playback plan; drive it from the same "needs conversion" switch the tests set.
+vi.mock("$lib/server/hls", async () => {
+	const ffmpegModule = await import("$lib/server/ffmpeg");
+	return {
+		getPlaybackPlan: vi.fn(async (filePath: string) => ({
+			mode:
+				filePath.endsWith(".mp4") && !(await ffmpegModule.requiresBrowserSafePlayback(filePath))
+					? "direct"
+					: "hls",
+		})),
+	};
+});
+
 import * as ffmpeg from "$lib/server/ffmpeg";
 import * as torrentDownload from "$lib/server/torrent/download";
 import * as torrentStatus from "$lib/server/torrent/status";

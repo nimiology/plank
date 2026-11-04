@@ -1,6 +1,7 @@
-import { existsSync } from "node:fs";
+import { createReadStream, createWriteStream, existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { pipeline } from "node:stream/promises";
 import { mediaDb } from "./db";
 import { normalizeFileForPlayback, probeFile, requiresBrowserSafePlayback } from "./ffmpeg";
 
@@ -81,41 +82,48 @@ export async function finalizeMediaToLibrary(
 	onProgress?.(0);
 	await fs.mkdir(path.dirname(targetPath), { recursive: true });
 
-	const needsNormalization = await shouldNormalizeFile(sourcePath);
-	const finalPath = needsNormalization
-		? `${path.join(path.dirname(targetPath), path.basename(targetPath, path.extname(targetPath)))}.mp4`
-		: targetPath;
-	const tempPath = path.join(
-		path.dirname(finalPath),
-		`${path.basename(finalPath, path.extname(finalPath))}.finalizing${path.extname(finalPath)}`
-	);
-
-	if (existsSync(tempPath)) {
-		await fs.unlink(tempPath).catch(() => undefined);
+	// Check the download before moving it, so a broken file never replaces anything.
+	if (!(await verifyFileIntegrity(sourcePath))) {
+		throw new Error(`Downloaded file is invalid: ${sourcePath}`);
 	}
 
-	if (needsNormalization) {
-		await normalizeFileForPlayback(sourcePath, tempPath, onProgress);
-	} else {
-		await fs.copyFile(sourcePath, tempPath);
+	// The original file goes into the library as is; browsers get a converted stream at play time.
+	try {
+		await fs.rename(sourcePath, targetPath);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "EXDEV") {
+			throw error;
+		}
+		await copyAcrossDevices(sourcePath, targetPath, onProgress);
 	}
 
-	const isValid = await verifyFileIntegrity(tempPath);
-	if (!isValid) {
-		await fs.unlink(tempPath).catch(() => undefined);
-		throw new Error(`Finalized file is invalid: ${tempPath}`);
-	}
-
-	if (!(await isDirectPlaybackReady(tempPath))) {
-		await fs.unlink(tempPath).catch(() => undefined);
-		throw new Error(`Finalized file is not browser-safe: ${tempPath}`);
-	}
-
-	await fs.rename(tempPath, finalPath);
-	const stats = await fs.stat(finalPath);
+	const stats = await fs.stat(targetPath);
 	onProgress?.(1);
 
-	return { filePath: finalPath, fileSize: stats.size };
+	return { filePath: targetPath, fileSize: stats.size };
+}
+
+/** Copy through a temp name with progress, for when the temp and library folders are on different disks. */
+async function copyAcrossDevices(
+	sourcePath: string,
+	targetPath: string,
+	onProgress?: (progress: number) => void
+): Promise<void> {
+	const tempPath = `${targetPath}.partial`;
+	const { size } = await fs.stat(sourcePath);
+	let copied = 0;
+	const reader = createReadStream(sourcePath);
+	reader.on("data", (chunk) => {
+		copied += chunk.length;
+		onProgress?.(size > 0 ? Math.min(0.99, copied / size) : 0);
+	});
+	try {
+		await pipeline(reader, createWriteStream(tempPath));
+		await fs.rename(tempPath, targetPath);
+	} catch (error) {
+		await fs.unlink(tempPath).catch(() => undefined);
+		throw error;
+	}
 }
 
 async function normalizeMediaForPlayback(mediaId: string): Promise<string | null> {

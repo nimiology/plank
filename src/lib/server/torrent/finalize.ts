@@ -125,6 +125,11 @@ export async function createEpisodesFromMapping(
 	}
 }
 
+/** VLC and Infuse auto-load subtitles whose name starts with the video's name. */
+function subtitleNameFor(videoPath: string, subtitleName: string): string {
+	return `${path.basename(videoPath, path.extname(videoPath))}.${sanitizeFilename(subtitleName)}`;
+}
+
 async function moveMovieToLibrary(mediaId: string, download: ActiveDownload): Promise<void> {
 	const logPrefix = `[${mediaId}:${download.infohash.slice(0, 8)}]`;
 
@@ -148,7 +153,7 @@ async function moveMovieToLibrary(mediaId: string, download: ActiveDownload): Pr
 	for (const subFile of download.subtitleFiles) {
 		try {
 			const subSource = path.join(download.torrent.path, subFile.path);
-			const subDest = path.join(destDir, sanitizeFilename(subFile.name));
+			const subDest = path.join(destDir, subtitleNameFor(finalized.filePath, subFile.name));
 			await fs.copyFile(subSource, subDest);
 		} catch (subErr) {
 			console.error(`${logPrefix} Failed to copy subtitle ${subFile.name}:`, subErr);
@@ -244,7 +249,7 @@ async function moveEpisodeToLibrary(mediaId: string, download: ActiveDownload): 
 	for (const subFile of download.subtitleFiles) {
 		try {
 			const subSource = path.join(download.torrent.path, subFile.path);
-			const subDest = path.join(seasonDir, sanitizeFilename(subFile.name));
+			const subDest = path.join(seasonDir, subtitleNameFor(finalized.filePath, subFile.name));
 			await fs.copyFile(subSource, subDest);
 		} catch (subErr) {
 			console.error(`${logPrefix} Failed to copy subtitle ${subFile.name}:`, subErr);

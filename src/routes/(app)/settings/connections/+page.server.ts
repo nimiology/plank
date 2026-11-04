@@ -1,7 +1,7 @@
 import { fail, type RequestEvent } from "@sveltejs/kit";
-import { auth } from "$lib/server/auth";
 import { getSettings, updateSettings } from "$lib/server/settings";
-import { requireSection, toSettingsRole } from "../sections";
+import { isOwner } from "$lib/server/settings-guard";
+import { requireSection } from "../sections";
 import type { Actions, PageServerLoad } from "./$types";
 
 const SECTION_HREF = "/settings/connections";
@@ -26,23 +26,6 @@ export const load: PageServerLoad = async ({ parent }) => {
 		},
 	};
 };
-
-/** Form actions run outside the layout load, so they must check the role again. */
-async function isOwner(event: RequestEvent): Promise<boolean> {
-	const organizationId = event.locals.session?.activeOrganizationId;
-	if (!organizationId) {
-		return false;
-	}
-
-	const permission = await auth.api
-		.getActiveMemberRole({
-			headers: event.request.headers,
-			query: { organizationId },
-		})
-		.catch(() => null);
-
-	return toSettingsRole(permission?.role) === "owner";
-}
 
 /** Save one connection. Fields the form does not send stay unchanged. */
 async function saveConnection(

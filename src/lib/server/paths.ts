@@ -145,4 +145,8 @@ export const PATHS = {
 	get temp() {
 		return `${this.data}/temp`;
 	},
+	/** Live-converted HLS segments; outside temp so its cleanup job leaves a playing stream alone. */
+	get hls() {
+		return `${this.data}/hls`;
+	},
 };

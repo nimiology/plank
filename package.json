@@ -35,6 +35,7 @@
     "drizzle-kit": "0.31.8",
     "drizzle-orm": "^0.45.1",
     "fluent-ffmpeg": "2.1.3",
+    "hls.js": "1.6.13",
     "jimp": "^1.6.0",
     "nanoid": "^5.1.16",
     "node-cron": "4.2.1",

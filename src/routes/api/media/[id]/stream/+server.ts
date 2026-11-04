@@ -2,7 +2,8 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { error } from "@sveltejs/kit";
 import { requireMediaAccess } from "$lib/server/api-guard";
-import { createTransmuxStream, needsTransmux, requiresBrowserSafePlayback } from "$lib/server/ffmpeg";
+import { createTransmuxStream, needsTransmux } from "$lib/server/ffmpeg";
+import { getPlaybackPlan } from "$lib/server/hls";
 import { startDownload } from "$lib/server/torrent/download";
 import { getDownloadStatus, isDownloadActive, waitForVideoReady } from "$lib/server/torrent/status";
 import { getVideoStream } from "$lib/server/torrent/stream";
@@ -103,12 +104,10 @@ function createTransmuxResponse(inputStream: import("node:stream").Readable, fil
 	});
 }
 
+/** Files the browser cannot play as is go through /hls instead. */
 async function isLibraryFileDirectPlaybackReady(filePath: string): Promise<boolean> {
-	if (path.extname(filePath).toLowerCase() !== ".mp4") {
-		return false;
-	}
 	try {
-		return !(await requiresBrowserSafePlayback(filePath));
+		return (await getPlaybackPlan(filePath)).mode === "direct";
 	} catch (errorValue) {
 		console.error("[Stream] Failed to probe playback compatibility:", errorValue);
 		return false;

@@ -219,7 +219,10 @@ beforeAll(() => {
       prowlarr_min_seeders INTEGER DEFAULT 5,
       opensubtitles_api_key TEXT,
       opensubtitles_username TEXT,
-      opensubtitles_password TEXT
+      opensubtitles_password TEXT,
+      video_encoder TEXT DEFAULT 'auto',
+      torrent_engine TEXT DEFAULT 'webtorrent',
+      rqbit_url TEXT
     );
   `);
 

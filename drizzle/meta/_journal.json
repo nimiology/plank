@@ -134,6 +134,13 @@
       "when": 1792190717508,
       "tag": "0018_ordinary_earthquake",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1793795481012,
+      "tag": "0019_yummy_lilith",
+      "breakpoints": true
     }
   ]
 }

@@ -1,10 +1,11 @@
 import type { Readable } from "node:stream";
 import { PassThrough } from "node:stream";
-import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 import ffmpeg from "fluent-ffmpeg";
+import { FFMPEG_PATH, FFPROBE_PATH, getEncoderArgs, resolveEncoder } from "./encoder";
+import { getSettings } from "./settings";
 
-// Set ffmpeg path
-ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+ffmpeg.setFfmpegPath(FFMPEG_PATH);
+ffmpeg.setFfprobePath(FFPROBE_PATH);
 
 // Supported video containers that browsers can play natively
 const NATIVE_PLAYABLE = [".mp4", ".webm"];
@@ -194,6 +195,52 @@ export async function convertSubtitleToVtt(inputPath: string, outputPath: string
 	});
 }
 
+/** Subtitle formats that convert to WebVTT. Picture-based ones (PGS, VobSub) need OCR, so they are skipped. */
+const TEXT_SUBTITLE_CODECS = new Set(["subrip", "srt", "ass", "ssa", "mov_text", "webvtt", "text"]);
+
+export interface EmbeddedSubtitle {
+	/** Position among the file's subtitle streams, for `-map 0:s:N`. */
+	subtitleIndex: number;
+	language: string;
+	title: string | null;
+}
+
+export function probeTextSubtitles(filePath: string): Promise<EmbeddedSubtitle[]> {
+	return new Promise((resolve, reject) => {
+		ffmpeg.ffprobe(filePath, (err, metadata) => {
+			if (err) {
+				reject(err);
+				return;
+			}
+			const subtitles = metadata.streams.filter((stream) => stream.codec_type === "subtitle");
+			resolve(
+				subtitles.flatMap((stream, subtitleIndex) =>
+					TEXT_SUBTITLE_CODECS.has(stream.codec_name ?? "")
+						? [
+								{
+									subtitleIndex,
+									language: (stream.tags?.language as string | undefined) || "und",
+									title: (stream.tags?.title as string | undefined) || null,
+								},
+							]
+						: []
+				)
+			);
+		});
+	});
+}
+
+export function extractSubtitleToVtt(inputPath: string, subtitleIndex: number, outputPath: string): Promise<void> {
+	return new Promise((resolve, reject) => {
+		ffmpeg(inputPath)
+			.outputOptions(["-map", `0:s:${subtitleIndex}`, "-c:s", "webvtt"])
+			.output(outputPath)
+			.on("error", (err: Error) => reject(err))
+			.on("end", () => resolve())
+			.run();
+	});
+}
+
 // Probe a file to get its codec information
 export async function probeFile(filePath: string): Promise<{
 	videoCodec: string | null;
@@ -201,6 +248,8 @@ export async function probeFile(filePath: string): Promise<{
 	duration: number | null;
 	audioChannels: number | null;
 	hasDataStreams: boolean;
+	videoHeight?: number | null;
+	pixelFormat?: string | null;
 }> {
 	return new Promise((resolve, reject) => {
 		ffmpeg.ffprobe(filePath, (err, metadata) => {
@@ -221,6 +270,8 @@ export async function probeFile(filePath: string): Promise<{
 				duration: metadata.format.duration || null,
 				audioChannels: audioStream?.channels || null,
 				hasDataStreams,
+				videoHeight: videoStream?.height || null,
+				pixelFormat: videoStream?.pix_fmt || null,
 			});
 		});
 	});
@@ -258,6 +309,9 @@ export async function normalizeFileForPlayback(
 	onProgress?: (progress: number) => void
 ): Promise<void> {
 	const compatibility = await getPlaybackCompatibility(inputPath);
+	const encoder = compatibility.needsVideoTranscode
+		? getEncoderArgs(await resolveEncoder((await getSettings()).playback.encoder), { maxHeight: 1080 })
+		: null;
 	return new Promise((resolve, reject) => {
 		const command = ffmpeg(inputPath)
 			.output(outputPath)
@@ -277,8 +331,8 @@ export async function normalizeFileForPlayback(
 				...getAudioOutputOptions(compatibility),
 			]);
 
-		if (compatibility.needsVideoTranscode) {
-			command.outputOptions(["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p"]);
+		if (encoder) {
+			command.inputOptions(encoder.input).outputOptions(["-vf", encoder.filter, ...encoder.output]);
 		} else {
 			command.outputOptions(["-c:v", "copy"]);
 		}

@@ -2,6 +2,8 @@ import type { Readable } from "node:stream";
 import parseTorrent from "parse-torrent";
 import WebTorrent from "webtorrent";
 import type { MediaType } from "$lib/types";
+import { getSettings } from "../settings";
+import { RqbitClient } from "./rqbit";
 
 export interface TorrentFile {
 	name: string;
@@ -88,17 +90,30 @@ export function getClient(): Promise<WebTorrentClient> {
 		return Promise.reject(new Error("WebTorrent client is shutting down"));
 	}
 	if (!clientPromise) {
-		const torrentClient = new WebTorrent({
-			maxConns: 55,
-			downloadLimit: -1,
-			uploadLimit: -1,
-		}) as unknown as WebTorrentClient;
-		torrentClient.on("error", (error) => {
-			console.error("[WebTorrent] Global client error:", error);
+		clientPromise = createClient();
+		clientPromise.catch(() => {
+			clientPromise = null;
 		});
-		clientPromise = Promise.resolve(torrentClient);
 	}
 	return clientPromise;
+}
+
+/** The engine is read when a client is built; idle clients are released, so a settings change applies on the next download. */
+async function createClient(): Promise<WebTorrentClient> {
+	const { downloads } = await getSettings();
+	if (downloads.engine === "rqbit") {
+		console.log(`[Torrent] Using rqbit at ${downloads.rqbitUrl}`);
+		return new RqbitClient(downloads.rqbitUrl);
+	}
+	const torrentClient = new WebTorrent({
+		maxConns: 55,
+		downloadLimit: -1,
+		uploadLimit: -1,
+	}) as unknown as WebTorrentClient;
+	torrentClient.on("error", (error) => {
+		console.error("[WebTorrent] Global client error:", error);
+	});
+	return torrentClient;
 }
 
 export function shutdownTorrentClient(): Promise<void> {

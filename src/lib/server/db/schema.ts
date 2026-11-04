@@ -262,6 +262,9 @@ export const configuration = sqliteTable("configuration", {
 	opensubtitlesApiKey: text("opensubtitles_api_key"),
 	opensubtitlesUsername: text("opensubtitles_username"),
 	opensubtitlesPassword: text("opensubtitles_password"),
+	videoEncoder: text("video_encoder").default("auto"),
+	torrentEngine: text("torrent_engine").default("webtorrent"),
+	rqbitUrl: text("rqbit_url"),
 });
 
 export const subtitles = sqliteTable(
