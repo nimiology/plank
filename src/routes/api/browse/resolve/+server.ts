@@ -17,7 +17,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 
 	const body = await request.json();
-	const { imdbId, tmdbId } = body;
+	const { imdbId, tmdbId, title, year } = body;
 
 	if (!(imdbId || tmdbId)) {
 		throw error(400, "Either imdbId or tmdbId is required");
@@ -45,7 +45,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 
 	// Search Prowlarr for best torrent
-	const torrent = await findBestTorrent(resolvedImdbId);
+	const torrent = await findBestTorrent(resolvedImdbId, {
+		mediaType: "movie",
+		title: typeof title === "string" ? title : undefined,
+		year: typeof year === "number" ? year : null,
+	});
 
 	if (!torrent) {
 		return json({

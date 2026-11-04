@@ -172,6 +172,8 @@
             const result = await resolveTorrentCached({
                 imdbId: item.imdbId,
                 tmdbId: item.tmdbId,
+                title: item.title,
+                year: item.year,
             });
 
             if (!(result.success && result.torrent)) {

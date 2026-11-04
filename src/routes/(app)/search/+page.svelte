@@ -250,6 +250,8 @@
             const result = await resolveTorrentCached({
                 imdbId: item.imdbId,
                 tmdbId: item.tmdbId,
+                title: item.title,
+                year: item.year,
             });
             if (!(result.success && result.torrent)) {
                 console.error("Failed to resolve torrent:", result.message || result.error);

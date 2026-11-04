@@ -399,6 +399,8 @@ export interface FindBestTorrentOptions {
 	showTitle?: string;
 	episodeTitle?: string | null;
 	year?: number | null;
+	/** Movie title, searched when no indexer answers the IMDb id */
+	title?: string;
 }
 
 function getEpisodeSearchLabel(options?: FindBestTorrentOptions): string | null {
@@ -410,6 +412,8 @@ function getEpisodeSearchLabel(options?: FindBestTorrentOptions): string | null 
 
 function normalizeSearchText(value: string): string {
 	return value
+		.normalize("NFD")
+		.replace(/\p{M}/gu, "") // "Déjà Vu" matches "Deja.Vu"
 		.toLowerCase()
 		.replace(/[^a-z0-9]+/g, " ")
 		.replace(/\s+/g, " ")
@@ -554,6 +558,21 @@ function filterCandidates(results: IndexerResult[], trustedGroups: string[], min
 }
 
 /**
+ * Most public indexers ignore IMDb ids, so when none answers, search "title year"
+ * and keep only releases whose name contains the title.
+ */
+async function searchMovieTorrent(imdbId: string, options?: FindBestTorrentOptions): Promise<IndexerResult[]> {
+	const results = await searchProwlarr(imdbId);
+	if (results.length > 0 || !options?.title) {
+		return results;
+	}
+	const title = normalizeSearchText(options.title);
+	// indexers find nothing for "Déjà Vu", so search the plain-letter form
+	const byTitle = await searchProwlarr([title, options.year].filter(Boolean).join(" "));
+	return byTitle.filter((result) => normalizeSearchText(result.title).includes(title));
+}
+
+/**
  * Search and filter Prowlarr results for high-quality torrents.
  * Returns the best matching torrent or null.
  */
@@ -566,7 +585,7 @@ export async function findBestTorrent(imdbId: string, options?: FindBestTorrentO
 	const results =
 		options?.mediaType === "episode" && options.seasonNumber && options.episodeNumber
 			? await searchEpisodeTorrent(imdbId, options)
-			: await searchProwlarr(imdbId);
+			: await searchMovieTorrent(imdbId, options);
 	const qualityFiltered = filterByQuality(results);
 	const episodeFiltered =
 		options?.mediaType === "episode" && options.seasonNumber && options.episodeNumber

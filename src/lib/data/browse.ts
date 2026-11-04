@@ -53,6 +53,8 @@ export interface SeasonsResponse {
 interface ResolveInput {
 	imdbId: string | null;
 	tmdbId: number;
+	title: string;
+	year: number | null;
 }
 
 function fetchBrowseDetails(items: { tmdbId: number; mediaType: "movie" | "show" }[]): Promise<BrowseDetailsResponse> {
