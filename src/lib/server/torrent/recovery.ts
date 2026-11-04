@@ -107,7 +107,9 @@ async function recoverSingleMedia(mediaItem: {
 		return;
 	}
 
-	if (existsSync(tempDir)) {
+	// A file in temp may be half downloaded, and its size alone cannot tell. With a magnet link the
+	// torrent engine re-checks the pieces on disk, resumes, and finalizes only once it is complete.
+	if (!mediaItem.magnetLink && existsSync(tempDir)) {
 		const videoInfo = await findVideoInDirectory(tempDir);
 		if (videoInfo && videoInfo.size >= MIN_VIDEO_SIZE) {
 			const success = await finalizeFromTemp(mediaId, videoInfo.path, videoInfo.name);
