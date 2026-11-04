@@ -31,6 +31,12 @@ interface ProwlarrResultItem {
 	size: number;
 	seeders?: number;
 	indexer?: string;
+	categories?: { id: number; name?: string }[];
+}
+
+/** Newznab's XXX range. Several indexers mix adult results into plain title searches. */
+function isAdultResult(item: ProwlarrResultItem): boolean {
+	return (item.categories ?? []).some((category) => category.id >= 6000 && category.id < 7000);
 }
 
 /**
@@ -385,7 +391,7 @@ export async function searchProwlarr(query: string, category?: string): Promise<
 		}
 
 		const data: ProwlarrResultItem[] = await response.json();
-		return parseProwlarrResults(data);
+		return parseProwlarrResults(data.filter((item) => !isAdultResult(item)));
 	} catch (error) {
 		console.error("Prowlarr search error:", error);
 		return [];

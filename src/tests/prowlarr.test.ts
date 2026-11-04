@@ -265,6 +265,34 @@ describe("Prowlarr Client", () => {
 			expect(results).toHaveLength(1);
 		});
 
+		it("drops results tagged with an adult (XXX) category", async () => {
+			mockFetch.mockResolvedValueOnce({
+				ok: true,
+				json: async () => [
+					{
+						title: "Movie.2024.1080p.WEB-DL",
+						magnetUrl: "magnet:?xt=urn:btih:aaa111",
+						infoHash: "aaa111",
+						size: 2_000_000_000,
+						seeders: 40,
+						categories: [{ id: 2040, name: "Movies/HD" }],
+					},
+					{
+						title: "Movie.2024.XXX.1080p",
+						magnetUrl: "magnet:?xt=urn:btih:bbb222",
+						infoHash: "bbb222",
+						size: 2_000_000_000,
+						seeders: 90,
+						categories: [{ id: 6000, name: "XXX" }],
+					},
+				],
+			});
+
+			const results = await searchProwlarr("Movie 2024");
+
+			expect(results.map((result) => result.infohash)).toEqual(["aaa111"]);
+		});
+
 		it("should handle API errors gracefully", async () => {
 			mockFetch.mockResolvedValueOnce({
 				ok: false,

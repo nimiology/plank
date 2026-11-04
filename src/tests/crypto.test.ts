@@ -58,8 +58,9 @@ describe("Crypto Module", () => {
 	describe("tamper detection", () => {
 		it("should throw on corrupted ciphertext", () => {
 			const encrypted = encrypt("test-value");
-			// Flip a character in the ciphertext portion
-			const corrupted = `${encrypted.slice(0, -2)}ff`;
+			// Change the last ciphertext byte; always to a different value, or the test passes by luck 1 in 256 times
+			const lastByte = encrypted.slice(-2);
+			const corrupted = `${encrypted.slice(0, -2)}${lastByte === "ff" ? "00" : "ff"}`;
 
 			expect(() => decrypt(corrupted)).toThrow();
 		});
