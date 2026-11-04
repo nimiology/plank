@@ -1,4 +1,4 @@
-import { createInfiniteQuery, createMutation } from "@tanstack/svelte-query";
+import { createInfiniteQuery, createMutation, createQuery } from "@tanstack/svelte-query";
 import { invalidate } from "$app/navigation";
 import { type CatalogFilters, DEFAULT_CATALOG_FILTERS, serializeCatalogSearch } from "$lib/data/search";
 import type { BrowseItem, SeasonSummary } from "$lib/server/tmdb";
@@ -18,7 +18,21 @@ const browseKeys = {
 	details: (tmdbIds: number[]) => ["browse", "details", ...tmdbIds.toSorted()] as const,
 	resolve: (tmdbId: number) => ["browse", "resolve", tmdbId] as const,
 	seasons: (tmdbId: number) => ["browse", "seasons", tmdbId] as const,
+	recommendations: ["browse", "recommendations"] as const,
 };
+
+export interface RecommendationsResponse {
+	rows: { title: string; items: BrowseItem[] }[];
+}
+
+export function createRecommendationsQuery() {
+	return createQuery(() => ({
+		queryKey: browseKeys.recommendations,
+		queryFn: () =>
+			apiRequest<RecommendationsResponse>("/api/browse/recommendations", "Failed to fetch recommendations"),
+		staleTime: BROWSE_STALE_TIME_MS,
+	}));
+}
 
 export interface BrowseResponse {
 	items: BrowseItem[];

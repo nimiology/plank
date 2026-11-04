@@ -1,30 +1,21 @@
 <script lang="ts">
     import { Trophy } from "@lucide/svelte";
     import { untrack } from "svelte";
-    import { toast } from "svelte-sonner";
     import { goto } from "$app/navigation";
+    import { createBrowseActions } from "$lib/browse-actions.svelte";
     import CardSkeleton from "$lib/components/CardSkeleton.svelte";
     import CatalogFilterButton from "$lib/components/CatalogFilterButton.svelte";
     import ProwlarrSetup from "$lib/components/ProwlarrSetup.svelte";
+    import RecommendationRows from "$lib/components/RecommendationRows.svelte";
     import TorrentCard from "$lib/components/TorrentCard.svelte";
     import Button from "$lib/components/ui/Button.svelte";
-    import {
-        type BrowseDetailItem,
-        type BrowseItem,
-        createAddFromBrowseMutation,
-        createBrowseInfiniteQuery,
-        fetchBrowseDetailsCached,
-        fetchSeasonsCached,
-        resolveTorrentCached,
-        type SeasonSummary,
-    } from "$lib/data/browse";
+    import { type BrowseDetailItem, createBrowseInfiniteQuery, fetchBrowseDetailsCached } from "$lib/data/browse";
     import { createProwlarrStatusQuery } from "$lib/data/prowlarr";
-    import { type CatalogFilters, serializeCatalogSearch } from "$lib/data/search";
-    import type { CatalogSeason } from "$lib/types";
+    import { type CatalogFilters, DEFAULT_CATALOG_FILTERS, serializeCatalogSearch } from "$lib/data/search";
     import type { PageData } from "./$types";
 
     let { data } = $props<{ data: PageData }>();
-    const addToLibraryMutation = createAddFromBrowseMutation();
+    const actions = createBrowseActions();
     let filters = $state<CatalogFilters>(
         untrack(() => ({ ...data.request.filters, genres: [...data.request.filters.genres] }))
     );
@@ -125,14 +116,15 @@
         });
     });
 
-    // UI State
-    let addingItems = $state<Set<number>>(new Set());
-
-    // TV show seasons state - keyed by TMDB ID
-    // We keep a local reactive cache for the UI to bind to (passed to TorrentCard)
-    // The data fetching uses QueryClient for network caching
-    let seasonsCache = $state<Map<number, CatalogSeason[]>>(new Map());
-    let seasonsLoading = $state<Set<number>>(new Set());
+    // "For you" rows only on the unfiltered page, so they don't push filtered results down
+    const showForYou = $derived(
+        filters.media === DEFAULT_CATALOG_FILTERS.media &&
+            filters.rating === DEFAULT_CATALOG_FILTERS.rating &&
+            filters.yearFrom === null &&
+            filters.yearTo === null &&
+            filters.genres.length === 0 &&
+            filters.sort === DEFAULT_CATALOG_FILTERS.sort
+    );
 
     // Load more trigger element
     let loadMoreTrigger: HTMLDivElement | null = $state(null);
@@ -161,185 +153,6 @@
 
         return () => observer.disconnect();
     });
-
-    // Get magnet link through the shared query cache
-    async function getMagnetLink(item: BrowseItem): Promise<string | null> {
-        if (item.magnetLink) {
-            return item.magnetLink;
-        }
-
-        try {
-            const result = await resolveTorrentCached({
-                imdbId: item.imdbId,
-                tmdbId: item.tmdbId,
-                title: item.title,
-                year: item.year,
-            });
-
-            if (!(result.success && result.torrent)) {
-                console.error("Failed to resolve torrent:", result.message || result.error);
-                return null;
-            }
-
-            return result.torrent.magnetLink;
-        } catch (err) {
-            console.error("Failed to resolve torrent:", err);
-            return null;
-        }
-    }
-
-    async function handleAddToLibrary(item: BrowseItem) {
-        if (addingItems.has(item.tmdbId)) {
-            return;
-        }
-
-        // Set adding state immediately to show UI spinner
-        addingItems = new Set(addingItems).add(item.tmdbId);
-
-        try {
-            const magnetLink = await getMagnetLink(item);
-            if (!magnetLink) {
-                // If resolution fails, we must clear the adding state
-                toast.error("No magnet link found for this title");
-                throw new Error("Could not resolve magnet link");
-            }
-
-            await addToLibraryMutation.mutateAsync({
-                magnetLink,
-                title: item.title,
-                year: item.year,
-                tmdbId: item.tmdbId,
-            });
-            toast.success("Added to library");
-        } catch (err) {
-            console.error("Failed to add to library:", err);
-            if (err instanceof Error && err.message !== "Could not resolve magnet link") {
-                toast.error("Failed to add to library. No valid magnet link found");
-            }
-        } finally {
-            const updated = new Set(addingItems);
-            updated.delete(item.tmdbId);
-            addingItems = updated;
-        }
-    }
-
-    async function handleWatchNow(item: BrowseItem) {
-        if (addingItems.has(item.tmdbId)) {
-            return;
-        }
-
-        // Set adding state immediately to show UI spinner
-        addingItems = new Set(addingItems).add(item.tmdbId);
-
-        try {
-            const magnetLink = await getMagnetLink(item);
-            if (!magnetLink) {
-                toast.error("No magnet link found for this title");
-                throw new Error("Could not resolve magnet link");
-            }
-
-            const media = await addToLibraryMutation.mutateAsync({
-                magnetLink,
-                title: item.title,
-                year: item.year,
-                tmdbId: item.tmdbId,
-            });
-            if (media) {
-                goto(`/watch/${media.id}`);
-            }
-        } catch (err) {
-            console.error("Failed to add and watch:", err);
-            if (err instanceof Error && err.message !== "Could not resolve magnet link") {
-                toast.error("Failed to start playback");
-            }
-        } finally {
-            const updated = new Set(addingItems);
-            updated.delete(item.tmdbId);
-            addingItems = updated;
-        }
-    }
-
-    // Prefetch magnet link on hover - runs getMagnetLink in the background
-    function handlePrefetch(item: BrowseItem) {
-        // Fire and forget; the shared cache handles deduplication
-        getMagnetLink(item);
-    }
-
-    // ==========================================================================
-    // TV Show Season Handling
-    // ==========================================================================
-
-    // Get seasons for a TV show through the shared query cache
-    async function getSeasons(item: BrowseItem): Promise<void> {
-        if (seasonsCache.has(item.tmdbId)) {
-            return;
-        }
-
-        seasonsLoading = new Set(seasonsLoading).add(item.tmdbId);
-
-        try {
-            const response = await fetchSeasonsCached(item.tmdbId);
-
-            const seasonData: CatalogSeason[] = response.seasons.map((s: SeasonSummary) => ({
-                seasonNumber: s.seasonNumber,
-                name: s.name,
-                episodeCount: s.episodeCount,
-            }));
-            seasonsCache = new Map(seasonsCache).set(item.tmdbId, seasonData);
-        } catch (err) {
-            console.error("Failed to fetch seasons:", err);
-        } finally {
-            const updated = new Set(seasonsLoading);
-            updated.delete(item.tmdbId);
-            seasonsLoading = updated;
-        }
-    }
-
-    // Prefetch seasons for a TV show on hover - fire and forget
-    function handlePrefetchSeasons(item: BrowseItem) {
-        if (item.mediaType !== "show") {
-            return;
-        }
-        // Fire and forget
-        getSeasons(item);
-    }
-
-    // Get seasons for a specific item (from cache)
-    function getSeasonsForItem(tmdbId: number): CatalogSeason[] {
-        return seasonsCache.get(tmdbId) ?? [];
-    }
-
-    // Handle season selection - queue metadata-first episode downloads
-    async function handleSelectSeason(item: BrowseItem, seasonNumber: number) {
-        if (addingItems.has(item.tmdbId)) {
-            return;
-        }
-
-        addingItems = new Set(addingItems).add(item.tmdbId);
-
-        try {
-            await addToLibraryMutation.mutateAsync({
-                mode: "browse-season",
-                title: item.title,
-                year: item.year,
-                tmdbId: item.tmdbId,
-                seasonNumber,
-                posterUrl: item.posterUrl,
-                backdropUrl: item.backdropUrl,
-                overview: item.overview,
-                genres: item.genres,
-                certification: item.certification,
-            });
-            toast.success(`Season ${seasonNumber} queued`);
-        } catch (err) {
-            console.error("Failed to add season to library:", err);
-            toast.error("Failed to add season");
-        } finally {
-            const updated = new Set(addingItems);
-            updated.delete(item.tmdbId);
-            addingItems = updated;
-        }
-    }
 </script>
 
 <div class="mx-auto min-h-screen max-w-7xl px-4 pb-28 pt-8 sm:pt-12">
@@ -389,19 +202,22 @@
                 </Button>
             {/if}
         {:else}
+            {#if showForYou}
+                <RecommendationRows {actions} />
+            {/if}
             <!-- Movie Grid -->
             <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                 {#each displayItems as item, i (item._key)}
                     <TorrentCard
                         {item}
-                        onAddToLibrary={handleAddToLibrary}
-                        onWatchNow={handleWatchNow}
-                        onPrefetch={handlePrefetch}
-                        onSelectSeason={handleSelectSeason}
-                        onPrefetchSeasons={handlePrefetchSeasons}
-                        isAdding={addingItems.has(item.tmdbId)}
-                        seasons={getSeasonsForItem(item.tmdbId)}
-                        seasonsLoading={seasonsLoading.has(item.tmdbId)}
+                        onAddToLibrary={actions.addToLibrary}
+                        onWatchNow={actions.watchNow}
+                        onPrefetch={actions.prefetch}
+                        onSelectSeason={actions.selectSeason}
+                        onPrefetchSeasons={actions.prefetchSeasons}
+                        isAdding={actions.isAdding(item.tmdbId)}
+                        seasons={actions.seasonsFor(item.tmdbId)}
+                        seasonsLoading={actions.isLoadingSeasons(item.tmdbId)}
                         eagerLoad={i < 18}
                     />
                 {/each}

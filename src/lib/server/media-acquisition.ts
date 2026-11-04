@@ -46,7 +46,9 @@ function getSearchOptions(mediaId: string, options?: AcquireMediaOptions): FindB
 				year: show?.year,
 			};
 		}
-		return mediaItem?.type === "movie" ? { mediaType: "movie", title: mediaItem.title, year: mediaItem.year } : undefined;
+		return mediaItem?.type === "movie"
+			? { mediaType: "movie", title: mediaItem.title, year: mediaItem.year }
+			: undefined;
 	}
 	if (!(mediaItem.seasonNumber && mediaItem.episodeNumber)) {
 		return undefined;

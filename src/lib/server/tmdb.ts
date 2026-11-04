@@ -274,6 +274,48 @@ export async function getTrending(
 	return { items, totalPages: data.total_pages };
 }
 
+const recommendationsCache = new Map<string, { items: BrowseItem[]; expiresAt: number }>();
+const RECOMMENDATIONS_TTL = 6 * 60 * 60 * 1000; // 6 hours
+const RECOMMENDATIONS_MAX_SIZE = 500;
+
+/**
+ * Get TMDB's "people who liked this also liked" titles for one movie or show,
+ * or with no id, the films in cinemas now
+ */
+export async function getRecommendations(tmdbId: number | null, type: "movie" | "show"): Promise<BrowseItem[]> {
+	const cacheKey = tmdbId === null ? "now_playing" : `${type}:${tmdbId}`;
+	const now = Date.now();
+	const cached = recommendationsCache.get(cacheKey);
+	if (cached && now < cached.expiresAt) {
+		return cached.items;
+	}
+
+	const settings = await getSettings();
+	const tmdbType = type === "show" ? "tv" : "movie";
+	const endpoint = tmdbId === null ? "movie/now_playing" : `${tmdbType}/${tmdbId}/recommendations`;
+	const res = await fetch(
+		`${settings.tmdb.baseUrl}/${endpoint}?api_key=${settings.tmdb.apiKey}&language=${settings.tmdb.language}`
+	);
+	if (!res.ok) {
+		console.error(`[TMDB] Recommendations ${cacheKey} failed: ${res.status}`);
+		return [];
+	}
+
+	const data: TMDBTrendingResponse = await res.json();
+	const items = data.results
+		.filter((item) => item.adult !== true && item.media_type !== "person")
+		.map((item) => mapTmdbToBrowseItem(item, type, settings));
+
+	if (recommendationsCache.size >= RECOMMENDATIONS_MAX_SIZE) {
+		const firstKey = recommendationsCache.keys().next().value;
+		if (firstKey) {
+			recommendationsCache.delete(firstKey);
+		}
+	}
+	recommendationsCache.set(cacheKey, { items, expiresAt: now + RECOMMENDATIONS_TTL });
+	return items;
+}
+
 /**
  * In-memory cache for browse item details (IMDB ID + certification).
  * These rarely change, so a 3-hour TTL avoids hammering TMDB with

@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { Film, LogOut, Play, Plus, Search, Settings, Users } from "@lucide/svelte";
+    import { Compass, Film, LogOut, Plus, Search, Settings, Users } from "@lucide/svelte";
     import { Avatar, DropdownMenu, Tooltip } from "bits-ui";
     import type { Snippet } from "svelte";
     import { fade, fly } from "svelte/transition";
@@ -20,7 +20,7 @@
 
     const navItems = [
         { href: "/", icon: Film, label: "Library" },
-        { href: "/browse", icon: Play, label: "Browse" },
+        { href: "/browse", icon: Compass, label: "Browse" },
         { href: "/search", icon: Search, label: "Search" },
     ];
 

@@ -473,6 +473,43 @@ export const mediaDb = {
 		db.update(mediaTable).set(updates).where(eq(mediaTable.id, id)).run();
 	},
 
+	/** Library movies and shows, most recently watched first (a show counts its episodes' plays), then newest added. */
+	getRecommendationSeeds(organizationId: string, limit = 10): Media[] {
+		const lastWatched = sql`COALESCE(
+			(SELECT MAX(e.last_played_at) FROM media e WHERE e.parent_id = ${mediaTable.id}),
+			${mediaTable.lastPlayedAt}
+		)`;
+		return db
+			.select()
+			.from(mediaTable)
+			.where(
+				and(
+					eq(mediaTable.organizationId, organizationId),
+					sql`${mediaTable.type} IN ('movie', 'show')`,
+					sql`${mediaTable.tmdbId} IS NOT NULL`
+				)
+			)
+			.orderBy(sql`${lastWatched} IS NULL`, desc(lastWatched), desc(mediaTable.addedAt))
+			.limit(limit)
+			.all();
+	},
+
+	/** "movie:603" / "show:1396" keys, since TMDB movie and show ids overlap. */
+	getLibraryTmdbKeys(organizationId: string): Set<string> {
+		const rows = db
+			.select({ type: mediaTable.type, tmdbId: mediaTable.tmdbId })
+			.from(mediaTable)
+			.where(
+				and(
+					eq(mediaTable.organizationId, organizationId),
+					sql`${mediaTable.type} IN ('movie', 'show')`,
+					sql`${mediaTable.tmdbId} IS NOT NULL`
+				)
+			)
+			.all();
+		return new Set(rows.map((row) => `${row.type}:${row.tmdbId}`));
+	},
+
 	getEpisodesBySeasonId(seasonId: string): Media[] {
 		return db
 			.select()
