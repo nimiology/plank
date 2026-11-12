@@ -218,10 +218,14 @@ function buildArgs(
 	const encoderArgs = encoder ? getEncoderArgs(encoder, { maxHeight: MAX_HEIGHT }) : null;
 	// Timestamps stay absolute (-copyts) so segments from different jobs line up, but the
 	// segment muxer and -force_key_frames measure cut times from where this job starts.
-	const cuts = boundaries.slice(start + 1, -1).map((time) => (time - boundaries[start]).toFixed(3));
+	// Seek 1 ms past the cut: rounding down would land on the keyframe before it, so the
+	// first segment would hold the previous segment's video and no audio.
+	const seek = start > 0 ? Math.ceil((boundaries[start] + 0.001) * 1000) / 1000 : 0;
+	// Cuts round down so the muxer never skips past the keyframe they point at.
+	const cuts = boundaries.slice(start + 1, -1).map((time) => (Math.floor((time - seek) * 1000) / 1000).toFixed(3));
 	const args = ["-hide_banner", "-loglevel", "error", "-nostdin", ...(encoderArgs?.input ?? [])];
 	if (start > 0) {
-		args.push("-ss", boundaries[start].toFixed(3));
+		args.push("-ss", seek.toFixed(3));
 	}
 	args.push("-copyts", "-i", filePath, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn");
 	if (encoderArgs) {
